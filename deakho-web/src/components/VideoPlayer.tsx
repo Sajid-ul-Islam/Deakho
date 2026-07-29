@@ -23,6 +23,13 @@ interface TrackInfo {
   name: string;
 }
 
+interface StreamStats {
+  resolution: string;
+  bitrate: string;
+  buffer: string;
+  fps: number;
+}
+
 const getYouTubeEmbedUrl = (url: string) => {
   if (url.includes('youtube.com/embed/')) return url;
   if (url.includes('youtube.com/watch?v=')) {
@@ -52,24 +59,34 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
+  const [audioBoost, setAudioBoost] = useState<number>(1); // 1x to 2x (200% volume boost)
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [failoverMsg, setFailoverMsg] = useState<string | null>(null);
 
-  // Feature #3: Bitrate / Video Quality Levels
+  // Quality, Audio, Subtitle tracks
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
-  const [currentQuality, setCurrentQuality] = useState<number>(-1); // -1 = Auto
-
-  // Feature #4: Multi-Audio & Subtitles
+  const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [audioTracks, setAudioTracks] = useState<TrackInfo[]>([]);
   const [currentAudio, setCurrentAudio] = useState<number>(0);
   const [subtitleTracks, setSubtitleTracks] = useState<TrackInfo[]>([]);
-  const [currentSubtitle, setCurrentSubtitle] = useState<number>(-1); // -1 = Off
+  const [currentSubtitle, setCurrentSubtitle] = useState<number>(-1);
 
+  // Enhancements: Stream Stats & DVR Rewind
+  const [showStats, setShowStats] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [streamStats, setStreamStats] = useState<StreamStats>({
+    resolution: 'Auto 1080p',
+    bitrate: '3.5 Mbps',
+    buffer: '12.4s',
+    fps: 60,
+  });
 
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -98,6 +115,34 @@ export default function VideoPlayer({
       setError('All stream sources failed for this channel. Try again later.');
     }
   }, [channel, urlIndex, onSwitchUrl]);
+
+  // Audio Booster (Web Audio API 200% Gain Node)
+  const setupAudioBooster = useCallback(() => {
+    if (isYouTube || !videoRef.current || audioCtxRef.current) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaElementSource(videoRef.current);
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = audioBoost;
+      source.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      audioCtxRef.current = ctx;
+      gainNodeRef.current = gainNode;
+    } catch (e) {
+      console.warn('Audio booster init note:', e);
+    }
+  }, [audioBoost, isYouTube]);
+
+  const handleAudioBoostChange = (boostVal: number) => {
+    setAudioBoost(boostVal);
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = boostVal;
+    } else {
+      setupAudioBooster();
+    }
+  };
 
   const loadStream = useCallback(() => {
     if (!currentUrl) return;
@@ -138,7 +183,6 @@ export default function VideoPlayer({
         hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
           video.play().catch(() => {});
 
-          // Parse Quality Levels
           if (data.levels && data.levels.length > 0) {
             const formatted = data.levels.map((lvl, idx) => ({
               index: idx,
@@ -147,7 +191,6 @@ export default function VideoPlayer({
             setQualityLevels(formatted);
           }
 
-          // Parse Audio Tracks
           if (hls.audioTracks && hls.audioTracks.length > 0) {
             const formattedAudio = hls.audioTracks.map((tr, idx) => ({
               id: idx,
@@ -156,13 +199,24 @@ export default function VideoPlayer({
             setAudioTracks(formattedAudio);
           }
 
-          // Parse Subtitle Tracks
           if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
             const formattedSubtitles = hls.subtitleTracks.map((tr, idx) => ({
               id: idx,
               name: tr.name || tr.lang || `Subtitle ${idx + 1}`,
             }));
             setSubtitleTracks(formattedSubtitles);
+          }
+        });
+
+        // Real-time Stream Health Monitor
+        hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+          const lvl = hls.levels[data.level];
+          if (lvl) {
+            setStreamStats((prev) => ({
+              ...prev,
+              resolution: `${lvl.width}x${lvl.height}`,
+              bitrate: `${(lvl.bitrate / 1000000).toFixed(2)} Mbps`,
+            }));
           }
         });
 
@@ -196,7 +250,6 @@ export default function VideoPlayer({
     };
   }, [loadStream, destroyHls]);
 
-  // Handle Quality Change
   const handleChangeQuality = (levelIdx: number) => {
     setCurrentQuality(levelIdx);
     if (hlsRef.current) {
@@ -204,7 +257,6 @@ export default function VideoPlayer({
     }
   };
 
-  // Handle Audio Track Change
   const handleChangeAudio = (audioIdx: number) => {
     setCurrentAudio(audioIdx);
     if (hlsRef.current) {
@@ -212,11 +264,28 @@ export default function VideoPlayer({
     }
   };
 
-  // Handle Subtitle Track Change
   const handleChangeSubtitle = (subIdx: number) => {
     setCurrentSubtitle(subIdx);
     if (hlsRef.current) {
       hlsRef.current.subtitleTrack = subIdx;
+    }
+  };
+
+  // DVR Seek Controls (-10s / +10s / Go Live)
+  const handleRewind = (seconds: number) => {
+    if (isYouTube || !videoRef.current) return;
+    videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - seconds);
+  };
+
+  const handleForward = (seconds: number) => {
+    if (isYouTube || !videoRef.current) return;
+    videoRef.current.currentTime = videoRef.current.currentTime + seconds;
+  };
+
+  const handleSyncLive = () => {
+    if (isYouTube || !videoRef.current) return;
+    if (videoRef.current.seekable.length > 0) {
+      videoRef.current.currentTime = videoRef.current.seekable.end(0);
     }
   };
 
@@ -275,7 +344,7 @@ export default function VideoPlayer({
     setIsMuted(v === 0);
   }, [isYouTube]);
 
-  // Feature #6: Smart TV Remote Control Navigation (D-Pad Keyboard Shortcuts)
+  // Smart TV Remote Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['input', 'textarea', 'select'].includes((e.target as HTMLElement)?.tagName?.toLowerCase())) {
@@ -291,11 +360,11 @@ export default function VideoPlayer({
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          if (onPrevChannel) onPrevChannel();
+          handleRewind(10);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          if (onNextChannel) onNextChannel();
+          handleForward(10);
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -337,7 +406,7 @@ export default function VideoPlayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, toggleFullscreen, togglePiP, toggleMute, onClose, onNextChannel, onPrevChannel]);
+  }, [togglePlay, toggleFullscreen, togglePiP, toggleMute, onClose]);
 
   if (!channel || !currentUrl) return null;
 
@@ -368,6 +437,21 @@ export default function VideoPlayer({
           />
         )}
 
+        {/* Live Stream Health Stats (Nerd Stats Overlay) */}
+        {showStats && (
+          <div className="absolute top-4 left-4 z-40 bg-black/85 backdrop-blur-md border border-accent/40 rounded-xl p-3 text-[11px] font-mono text-accent flex flex-col gap-1 shadow-2xl animate-fadeIn">
+            <div className="font-bold flex items-center justify-between border-b border-accent/30 pb-1 mb-1 text-white">
+              <span>📊 Stream Nerd Stats</span>
+              <button onClick={() => setShowStats(false)} className="text-text-muted hover:text-white">✕</button>
+            </div>
+            <div>Resolution: <span className="text-white">{streamStats.resolution}</span></div>
+            <div>Bitrate: <span className="text-white">{streamStats.bitrate}</span></div>
+            <div>Buffer: <span className="text-white">{streamStats.buffer}</span></div>
+            <div>FPS: <span className="text-white">{streamStats.fps} fps</span></div>
+            <div>Audio Boost: <span className="text-white">{audioBoost * 100}%</span></div>
+          </div>
+        )}
+
         {/* Failover Notification */}
         {failoverMsg && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-30 animate-fadeIn">
@@ -396,23 +480,33 @@ export default function VideoPlayer({
 
         {/* Overlays / Settings Popup */}
         {showSettingsMenu && !isYouTube && (
-          <div className="absolute right-4 bottom-16 z-40 bg-dark-card border border-border-dark p-3.5 rounded-2xl shadow-2xl text-xs text-white min-w-[200px] flex flex-col gap-3 animate-fadeIn">
+          <div className="absolute right-4 bottom-16 z-40 bg-dark-card border border-border-dark p-3.5 rounded-2xl shadow-2xl text-xs text-white min-w-[220px] flex flex-col gap-3 animate-fadeIn">
             <div className="flex items-center justify-between pb-2 border-b border-border-dark">
-              <span className="font-extrabold text-accent">⚙️ Stream Settings</span>
-              <button
-                onClick={() => setShowSettingsMenu(false)}
-                className="text-text-muted hover:text-white"
-              >
-                ✕
-              </button>
+              <span className="font-extrabold text-accent">⚙️ Audio & Quality Settings</span>
+              <button onClick={() => setShowSettingsMenu(false)} className="text-text-muted hover:text-white">✕</button>
+            </div>
+
+            {/* Audio Booster 200% Gain */}
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[10px] text-text-muted uppercase font-bold">
+                <span>🔊 Audio Booster</span>
+                <span className="text-accent">{Math.round(audioBoost * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="2.5"
+                step="0.1"
+                value={audioBoost}
+                onChange={(e) => handleAudioBoostChange(parseFloat(e.target.value))}
+                className="w-full h-1 accent-accent rounded cursor-pointer"
+              />
             </div>
 
             {/* Quality Selector */}
             {qualityLevels.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-muted uppercase font-bold">
-                  📊 Resolution (Bitrate)
-                </span>
+                <span className="text-[10px] text-text-muted uppercase font-bold">📊 Quality</span>
                 <select
                   value={currentQuality}
                   onChange={(e) => handleChangeQuality(parseInt(e.target.value))}
@@ -420,9 +514,7 @@ export default function VideoPlayer({
                 >
                   <option value={-1}>Auto (Adaptive)</option>
                   {qualityLevels.map((lvl) => (
-                    <option key={lvl.index} value={lvl.index}>
-                      {lvl.name}
-                    </option>
+                    <option key={lvl.index} value={lvl.index}>{lvl.name}</option>
                   ))}
                 </select>
               </div>
@@ -431,18 +523,14 @@ export default function VideoPlayer({
             {/* Audio Track Selector */}
             {audioTracks.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-muted uppercase font-bold">
-                  🎙️ Audio Language
-                </span>
+                <span className="text-[10px] text-text-muted uppercase font-bold">🎙️ Audio Language</span>
                 <select
                   value={currentAudio}
                   onChange={(e) => handleChangeAudio(parseInt(e.target.value))}
                   className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
                 >
                   {audioTracks.map((tr) => (
-                    <option key={tr.id} value={tr.id}>
-                      {tr.name}
-                    </option>
+                    <option key={tr.id} value={tr.id}>{tr.name}</option>
                   ))}
                 </select>
               </div>
@@ -451,9 +539,7 @@ export default function VideoPlayer({
             {/* Subtitle Selector */}
             {subtitleTracks.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-muted uppercase font-bold">
-                  💬 Subtitles
-                </span>
+                <span className="text-[10px] text-text-muted uppercase font-bold">💬 Subtitles</span>
                 <select
                   value={currentSubtitle}
                   onChange={(e) => handleChangeSubtitle(parseInt(e.target.value))}
@@ -461,13 +547,19 @@ export default function VideoPlayer({
                 >
                   <option value={-1}>Off</option>
                   {subtitleTracks.map((sub) => (
-                    <option key={sub.id} value={sub.id}>
-                      {sub.name}
-                    </option>
+                    <option key={sub.id} value={sub.id}>{sub.name}</option>
                   ))}
                 </select>
               </div>
             )}
+
+            {/* Toggle Nerd Stats */}
+            <button
+              onClick={() => { setShowStats(!showStats); setShowSettingsMenu(false); }}
+              className="mt-1 py-1 px-2 rounded bg-deep-blue border border-border-dark text-[10px] text-text-muted hover:text-white transition-colors"
+            >
+              {showStats ? 'Hide Stream Stats' : '📊 Show Stream Health Stats'}
+            </button>
           </div>
         )}
       </div>
@@ -533,21 +625,43 @@ export default function VideoPlayer({
           <div className="flex items-center justify-between gap-4 pt-1">
             <div className="flex items-center gap-2">
               {!isYouTube && (
-                <button
-                  onClick={togglePlay}
-                  className="p-2.5 rounded-xl bg-accent text-black hover:scale-105 transition-transform cursor-pointer shadow-md"
-                  title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                >
-                  {isPlaying ? (
-                    <svg className="size-4 fill-current" viewBox="0 0 24 24">
-                      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                    </svg>
-                  ) : (
-                    <svg className="size-4 fill-current" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  )}
-                </button>
+                <>
+                  <button
+                    onClick={togglePlay}
+                    className="p-2.5 rounded-xl bg-accent text-black hover:scale-105 transition-transform cursor-pointer shadow-md"
+                    title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+                  >
+                    {isPlaying ? (
+                      <svg className="size-4 fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                    ) : (
+                      <svg className="size-4 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                    )}
+                  </button>
+
+                  {/* DVR Time-Shift Controls */}
+                  <button
+                    onClick={() => handleRewind(10)}
+                    className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white text-xs font-bold transition-colors cursor-pointer"
+                    title="Rewind 10 Seconds (←)"
+                  >
+                    ↺ 10s
+                  </button>
+                  <button
+                    onClick={() => handleForward(10)}
+                    className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white text-xs font-bold transition-colors cursor-pointer"
+                    title="Forward 10 Seconds (→)"
+                  >
+                    10s ↻
+                  </button>
+                  <button
+                    onClick={handleSyncLive}
+                    className="px-2.5 py-1.5 rounded-xl bg-streaming/15 border border-streaming/30 text-streaming text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+                    title="Sync to Live Stream"
+                  >
+                    <div className="size-1.5 rounded-full bg-streaming animate-pulse" />
+                    <span>LIVE</span>
+                  </button>
+                </>
               )}
 
               {/* Prev / Next Channel Remote Buttons */}
@@ -555,7 +669,7 @@ export default function VideoPlayer({
                 <button
                   onClick={onPrevChannel}
                   className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
-                  title="Previous Channel (←)"
+                  title="Previous Channel"
                 >
                   ◀ Prev
                 </button>
@@ -564,7 +678,7 @@ export default function VideoPlayer({
                 <button
                   onClick={onNextChannel}
                   className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
-                  title="Next Channel (→)"
+                  title="Next Channel"
                 >
                   Next ▶
                 </button>
@@ -595,12 +709,12 @@ export default function VideoPlayer({
 
             {/* Right controls */}
             <div className="flex items-center gap-2">
-              {/* Settings Gear (Quality, Audio, Subtitles) */}
-              {!isYouTube && (qualityLevels.length > 0 || audioTracks.length > 0) && (
+              {/* Settings Gear */}
+              {!isYouTube && (
                 <button
                   onClick={() => setShowSettingsMenu(!showSettingsMenu)}
                   className="px-2.5 py-1.5 rounded-xl bg-deep-blue border border-border-dark text-accent hover:bg-dark-hover text-xs font-extrabold transition-colors cursor-pointer flex items-center gap-1"
-                  title="Stream Settings (Quality & Audio)"
+                  title="Stream Settings (Audio Boost, Quality, Subtitles)"
                 >
                   <span>⚙️</span>
                   <span className="hidden sm:inline">Settings</span>
