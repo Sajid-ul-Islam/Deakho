@@ -13,6 +13,16 @@ interface VideoPlayerProps {
   onToggleFavorite?: () => void;
 }
 
+interface QualityLevel {
+  index: number;
+  name: string;
+}
+
+interface TrackInfo {
+  id: number;
+  name: string;
+}
+
 const getYouTubeEmbedUrl = (url: string) => {
   if (url.includes('youtube.com/embed/')) return url;
   if (url.includes('youtube.com/watch?v=')) {
@@ -48,6 +58,19 @@ export default function VideoPlayer({
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [failoverMsg, setFailoverMsg] = useState<string | null>(null);
+
+  // Feature #3: Bitrate / Video Quality Levels
+  const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
+  const [currentQuality, setCurrentQuality] = useState<number>(-1); // -1 = Auto
+
+  // Feature #4: Multi-Audio & Subtitles
+  const [audioTracks, setAudioTracks] = useState<TrackInfo[]>([]);
+  const [currentAudio, setCurrentAudio] = useState<number>(0);
+  const [subtitleTracks, setSubtitleTracks] = useState<TrackInfo[]>([]);
+  const [currentSubtitle, setCurrentSubtitle] = useState<number>(-1); // -1 = Off
+
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const currentUrl = channel?.urls[urlIndex];
@@ -82,6 +105,9 @@ export default function VideoPlayer({
     destroyHls();
     setError(null);
     setIsPlaying(false);
+    setQualityLevels([]);
+    setAudioTracks([]);
+    setSubtitleTracks([]);
 
     if (isYouTube) {
       setIsPlaying(true);
@@ -91,7 +117,7 @@ export default function VideoPlayer({
     if (!videoRef.current) return;
     const video = videoRef.current;
 
-    if (currentUrl.url.endsWith('.m3u8')) {
+    if (currentUrl.url.endsWith('.m3u8') || currentUrl.url.includes('.m3u8')) {
       if (Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
@@ -108,9 +134,38 @@ export default function VideoPlayer({
         hlsRef.current = hls;
         hls.loadSource(currentUrl.url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+
+        hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
           video.play().catch(() => {});
+
+          // Parse Quality Levels
+          if (data.levels && data.levels.length > 0) {
+            const formatted = data.levels.map((lvl, idx) => ({
+              index: idx,
+              name: lvl.height ? `${lvl.height}p HD` : `Level ${idx + 1}`,
+            }));
+            setQualityLevels(formatted);
+          }
+
+          // Parse Audio Tracks
+          if (hls.audioTracks && hls.audioTracks.length > 0) {
+            const formattedAudio = hls.audioTracks.map((tr, idx) => ({
+              id: idx,
+              name: tr.name || tr.lang || `Audio Track ${idx + 1}`,
+            }));
+            setAudioTracks(formattedAudio);
+          }
+
+          // Parse Subtitle Tracks
+          if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+            const formattedSubtitles = hls.subtitleTracks.map((tr, idx) => ({
+              id: idx,
+              name: tr.name || tr.lang || `Subtitle ${idx + 1}`,
+            }));
+            setSubtitleTracks(formattedSubtitles);
+          }
         });
+
         hls.on(Hls.Events.ERROR, (_event, data) => {
           if (data.fatal) {
             triggerAutoFailover();
@@ -141,6 +196,30 @@ export default function VideoPlayer({
     };
   }, [loadStream, destroyHls]);
 
+  // Handle Quality Change
+  const handleChangeQuality = (levelIdx: number) => {
+    setCurrentQuality(levelIdx);
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelIdx;
+    }
+  };
+
+  // Handle Audio Track Change
+  const handleChangeAudio = (audioIdx: number) => {
+    setCurrentAudio(audioIdx);
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = audioIdx;
+    }
+  };
+
+  // Handle Subtitle Track Change
+  const handleChangeSubtitle = (subIdx: number) => {
+    setCurrentSubtitle(subIdx);
+    if (hlsRef.current) {
+      hlsRef.current.subtitleTrack = subIdx;
+    }
+  };
+
   // Auto-hide controls
   const handleMouseMove = useCallback(() => {
     setShowControls(true);
@@ -166,14 +245,13 @@ export default function VideoPlayer({
   }, [isYouTube]);
 
   const toggleFullscreen = useCallback(() => {
-    if (!videoRef.current && !isYouTube) return;
     const container = document.getElementById('deakho-player-container');
     if (!document.fullscreenElement) {
       container?.requestFullscreen().catch(() => {});
     } else {
       document.exitFullscreen().catch(() => {});
     }
-  }, [isYouTube]);
+  }, []);
 
   const togglePiP = useCallback(async () => {
     if (isYouTube || !videoRef.current) return;
@@ -197,46 +275,61 @@ export default function VideoPlayer({
     setIsMuted(v === 0);
   }, [isYouTube]);
 
-  // TV Remote Shortcuts
+  // Feature #6: Smart TV Remote Control Navigation (D-Pad Keyboard Shortcuts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (['input', 'textarea', 'select'].includes((e.target as HTMLElement)?.tagName?.toLowerCase())) {
+        return;
+      }
 
       switch (e.key) {
         case ' ':
         case 'k':
-        case 'K':
+        case 'Enter':
           e.preventDefault();
           togglePlay();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (onPrevChannel) onPrevChannel();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          if (onNextChannel) onNextChannel();
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          if (videoRef.current) {
+            const newVol = Math.min(1, videoRef.current.volume + 0.1);
+            videoRef.current.volume = newVol;
+            setVolume(newVol);
+          }
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          if (videoRef.current) {
+            const newVol = Math.max(0, videoRef.current.volume - 0.1);
+            videoRef.current.volume = newVol;
+            setVolume(newVol);
+          }
           break;
         case 'f':
         case 'F':
           e.preventDefault();
           toggleFullscreen();
           break;
-        case 'm':
-        case 'M':
-          e.preventDefault();
-          toggleMute();
-          break;
         case 'p':
         case 'P':
           e.preventDefault();
           togglePiP();
           break;
-        case 'ArrowRight':
-          if (onNextChannel) {
-            e.preventDefault();
-            onNextChannel();
-          }
-          break;
-        case 'ArrowLeft':
-          if (onPrevChannel) {
-            e.preventDefault();
-            onPrevChannel();
-          }
+        case 'm':
+        case 'M':
+          e.preventDefault();
+          toggleMute();
           break;
         case 'Escape':
+          e.preventDefault();
           onClose();
           break;
       }
@@ -244,264 +337,297 @@ export default function VideoPlayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, toggleFullscreen, toggleMute, togglePiP, onNextChannel, onPrevChannel, onClose]);
+  }, [togglePlay, toggleFullscreen, togglePiP, toggleMute, onClose, onNextChannel, onPrevChannel]);
 
-  if (!channel) return null;
+  if (!channel || !currentUrl) return null;
 
   return (
     <div
       id="deakho-player-container"
-      className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden group shadow-2xl border border-border-dark"
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => setShowControls(false)}
+      className="relative w-full bg-black rounded-2xl overflow-hidden shadow-2xl border border-border-dark group flex flex-col"
     >
-      {isYouTube ? (
-        <iframe
-          src={getYouTubeEmbedUrl(currentUrl!.url)}
-          title={channel.name}
-          className="w-full h-full border-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-        />
-      ) : (
-        <video
-          ref={videoRef}
-          className="w-full h-full object-contain cursor-pointer"
-          onClick={togglePlay}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          playsInline
-        />
-      )}
+      {/* Video Container */}
+      <div className="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden">
+        {isYouTube ? (
+          <iframe
+            src={getYouTubeEmbedUrl(currentUrl.url)}
+            title={channel.name}
+            className="w-full h-full border-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            className="w-full h-full object-contain"
+            playsInline
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onClick={togglePlay}
+          />
+        )}
 
-      {/* Auto Failover Notice */}
-      {failoverMsg && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-accent/90 text-black px-4 py-2 rounded-xl text-xs font-semibold shadow-lg z-30 animate-bounce">
-          {failoverMsg}
-        </div>
-      )}
-
-      {/* Error overlay */}
-      {error && !isYouTube && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-20 gap-4 p-4 text-center">
-          <div className="size-16 rounded-full bg-red-500/20 flex items-center justify-center">
-            <svg className="size-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="text-red-400 text-sm max-w-md">{error}</p>
-          {channel.urls.length > 1 && (
-            <div className="flex flex-wrap justify-center gap-2 max-w-md">
-              {channel.urls.map((u, i) => (
-                <button
-                  key={u.label}
-                  onClick={() => {
-                    setError(null);
-                    onSwitchUrl(i);
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    i === urlIndex
-                      ? 'bg-accent text-black'
-                      : 'bg-dark-hover text-text-secondary hover:bg-border-light hover:text-white'
-                  }`}
-                >
-                  {u.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Loading spinner for native HLS */}
-      {!error && !isPlaying && !isYouTube && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10 pointer-events-none">
-          <div className="size-12 border-4 border-border-light border-t-accent rounded-full animate-spin" />
-        </div>
-      )}
-
-      {/* Top overlay */}
-      <div
-        className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/90 via-black/40 to-transparent transition-opacity duration-300 z-20 pointer-events-auto ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {channel.logo && (
-              <img
-                src={channel.logo}
-                alt=""
-                className="size-9 rounded-xl object-contain bg-dark-card p-1 shadow"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            )}
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-white font-bold text-sm sm:text-base leading-tight">
-                  {channel.name}
-                </h3>
-                <span className="px-2 py-0.5 rounded-full bg-streaming/20 border border-streaming/30 text-streaming text-[10px] font-semibold">
-                  LIVE
-                </span>
-                {isYouTube && (
-                  <span className="px-2 py-0.5 rounded-full bg-red-600/30 border border-red-500/40 text-red-400 text-[10px] font-bold">
-                    YouTube Official
-                  </span>
-                )}
-              </div>
-              <p className="text-text-muted text-xs mt-0.5">
-                {currentUrl?.label || 'Primary'} · Category: {channel.group}
-              </p>
+        {/* Failover Notification */}
+        {failoverMsg && (
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-30 animate-fadeIn">
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-dark-card border border-accent/40 shadow-2xl text-accent font-bold text-xs">
+              <div className="size-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+              <span>{failoverMsg}</span>
             </div>
           </div>
+        )}
 
-          <div className="flex items-center gap-2">
-            {/* Favorite button */}
-            {onToggleFavorite && (
-              <button
-                onClick={onToggleFavorite}
-                className={`size-8 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors cursor-pointer ${
-                  isFavorite ? 'text-amber-400' : 'text-white/70 hover:text-white'
-                }`}
-                title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
-              >
-                <svg className="size-4" fill={isFavorite ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                </svg>
-              </button>
-            )}
-
-            {/* Close button */}
+        {/* Error Notification */}
+        {error && (
+          <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center gap-3 z-30">
+            <div className="size-12 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center text-xl">
+              ⚠️
+            </div>
+            <p className="text-white text-sm font-semibold max-w-md">{error}</p>
             <button
-              onClick={onClose}
-              className="size-8 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors cursor-pointer text-white"
-              title="Close player (Esc)"
+              onClick={loadStream}
+              className="px-4 py-2 rounded-xl bg-accent text-black font-bold text-xs hover:scale-105 transition-transform cursor-pointer"
             >
-              ✕
+              Retry Stream
             </button>
           </div>
-        </div>
+        )}
+
+        {/* Overlays / Settings Popup */}
+        {showSettingsMenu && !isYouTube && (
+          <div className="absolute right-4 bottom-16 z-40 bg-dark-card border border-border-dark p-3.5 rounded-2xl shadow-2xl text-xs text-white min-w-[200px] flex flex-col gap-3 animate-fadeIn">
+            <div className="flex items-center justify-between pb-2 border-b border-border-dark">
+              <span className="font-extrabold text-accent">⚙️ Stream Settings</span>
+              <button
+                onClick={() => setShowSettingsMenu(false)}
+                className="text-text-muted hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Quality Selector */}
+            {qualityLevels.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-muted uppercase font-bold">
+                  📊 Resolution (Bitrate)
+                </span>
+                <select
+                  value={currentQuality}
+                  onChange={(e) => handleChangeQuality(parseInt(e.target.value))}
+                  className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
+                >
+                  <option value={-1}>Auto (Adaptive)</option>
+                  {qualityLevels.map((lvl) => (
+                    <option key={lvl.index} value={lvl.index}>
+                      {lvl.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Audio Track Selector */}
+            {audioTracks.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-muted uppercase font-bold">
+                  🎙️ Audio Language
+                </span>
+                <select
+                  value={currentAudio}
+                  onChange={(e) => handleChangeAudio(parseInt(e.target.value))}
+                  className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
+                >
+                  {audioTracks.map((tr) => (
+                    <option key={tr.id} value={tr.id}>
+                      {tr.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Subtitle Selector */}
+            {subtitleTracks.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-muted uppercase font-bold">
+                  💬 Subtitles
+                </span>
+                <select
+                  value={currentSubtitle}
+                  onChange={(e) => handleChangeSubtitle(parseInt(e.target.value))}
+                  className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
+                >
+                  <option value={-1}>Off</option>
+                  {subtitleTracks.map((sub) => (
+                    <option key={sub.id} value={sub.id}>
+                      {sub.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Bottom controls */}
+      {/* Control Bar Overlay */}
       <div
-        className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 z-20 pointer-events-auto ${
+        className={`p-4 bg-gradient-to-t from-dark-card via-dark-card/90 to-transparent transition-opacity duration-300 ${
           showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
-        <div className="flex items-center gap-3">
-          {/* Previous Channel */}
-          {onPrevChannel && (
-            <button
-              onClick={onPrevChannel}
-              className="size-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors cursor-pointer"
-              title="Previous Channel (Left Arrow)"
-            >
-              <svg className="size-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-              </svg>
-            </button>
-          )}
-
-          {!isYouTube && (
-            <>
-              {/* Play/Pause */}
-              <button
-                onClick={togglePlay}
-                className="size-10 rounded-full bg-accent hover:bg-accent-light text-black flex items-center justify-center transition-transform hover:scale-105 cursor-pointer shadow-lg"
-                title="Play / Pause (Space)"
-              >
-                {isPlaying ? (
-                  <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
-                  </svg>
-                ) : (
-                  <svg className="size-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                )}
-              </button>
-
-              {/* Volume */}
-              <button
-                onClick={toggleMute}
-                className="size-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors cursor-pointer"
-                title="Mute / Unmute (M)"
-              >
-                {isMuted || volume === 0 ? (
-                  <svg className="size-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
-                  </svg>
-                ) : (
-                  <svg className="size-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-                  </svg>
-                )}
-              </button>
-
-              {/* Volume slider */}
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={isMuted ? 0 : volume}
-                onChange={handleVolumeChange}
-                className="w-16 sm:w-20 h-1 appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-              />
-            </>
-          )}
-
-          {/* Next Channel */}
-          {onNextChannel && (
-            <button
-              onClick={onNextChannel}
-              className="size-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors cursor-pointer"
-              title="Next Channel (Right Arrow)"
-            >
-              <svg className="size-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
-            </button>
-          )}
-
-          <div className="flex-1" />
-
-          {/* Fullscreen */}
-          <button
-            onClick={toggleFullscreen}
-            className="size-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors cursor-pointer"
-            title="Fullscreen (F)"
-          >
-            <svg className="size-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-            </svg>
-          </button>
-
-          {/* Source Switcher */}
-          {channel.urls.length > 1 && (
-            <div className="flex gap-1 bg-black/60 p-1 rounded-lg border border-white/10">
-              {channel.urls.map((u, i) => (
-                <button
-                  key={u.label}
-                  onClick={() => {
-                    setError(null);
-                    onSwitchUrl(i);
-                  }}
-                  className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-all cursor-pointer ${
-                    i === urlIndex
-                      ? 'bg-accent text-black shadow-sm'
-                      : 'bg-white/5 text-white/70 hover:bg-white/15 hover:text-white'
-                  }`}
-                >
-                  {u.label}
-                </button>
-              ))}
+        <div className="flex flex-col gap-3">
+          {/* Header Row */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {channel.logo && (
+                <img
+                  src={channel.logo}
+                  alt={channel.name}
+                  className="size-8 rounded-lg object-contain bg-black/40 p-1 border border-border-dark"
+                />
+              )}
+              <div>
+                <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                  <span>{channel.name}</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent/20 text-accent uppercase">
+                    {channel.group}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-text-muted">
+                  Source {urlIndex + 1} of {channel.urls.length}: {currentUrl.label}
+                </p>
+              </div>
             </div>
-          )}
+
+            <div className="flex items-center gap-2">
+              {/* Favorite Star */}
+              {onToggleFavorite && (
+                <button
+                  onClick={onToggleFavorite}
+                  className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                    isFavorite
+                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                      : 'bg-deep-blue border-border-dark text-text-muted hover:text-white'
+                  }`}
+                  title={isFavorite ? 'Remove Favorite' : 'Save Favorite'}
+                >
+                  ⭐
+                </button>
+              )}
+
+              {/* Close Button */}
+              <button
+                onClick={onClose}
+                className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
+                title="Close Player (Esc)"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {/* Action Row */}
+          <div className="flex items-center justify-between gap-4 pt-1">
+            <div className="flex items-center gap-2">
+              {!isYouTube && (
+                <button
+                  onClick={togglePlay}
+                  className="p-2.5 rounded-xl bg-accent text-black hover:scale-105 transition-transform cursor-pointer shadow-md"
+                  title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+                >
+                  {isPlaying ? (
+                    <svg className="size-4 fill-current" viewBox="0 0 24 24">
+                      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                    </svg>
+                  ) : (
+                    <svg className="size-4 fill-current" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  )}
+                </button>
+              )}
+
+              {/* Prev / Next Channel Remote Buttons */}
+              {onPrevChannel && (
+                <button
+                  onClick={onPrevChannel}
+                  className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
+                  title="Previous Channel (←)"
+                >
+                  ◀ Prev
+                </button>
+              )}
+              {onNextChannel && (
+                <button
+                  onClick={onNextChannel}
+                  className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
+                  title="Next Channel (→)"
+                >
+                  Next ▶
+                </button>
+              )}
+
+              {/* Volume Slider */}
+              {!isYouTube && (
+                <div className="hidden sm:flex items-center gap-2 ml-2">
+                  <button
+                    onClick={toggleMute}
+                    className="text-text-muted hover:text-white cursor-pointer"
+                    title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
+                  >
+                    {isMuted || volume === 0 ? '🔇' : '🔊'}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={isMuted ? 0 : volume}
+                    onChange={handleVolumeChange}
+                    className="w-16 h-1 accent-accent rounded cursor-pointer"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Right controls */}
+            <div className="flex items-center gap-2">
+              {/* Settings Gear (Quality, Audio, Subtitles) */}
+              {!isYouTube && (qualityLevels.length > 0 || audioTracks.length > 0) && (
+                <button
+                  onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                  className="px-2.5 py-1.5 rounded-xl bg-deep-blue border border-border-dark text-accent hover:bg-dark-hover text-xs font-extrabold transition-colors cursor-pointer flex items-center gap-1"
+                  title="Stream Settings (Quality & Audio)"
+                >
+                  <span>⚙️</span>
+                  <span className="hidden sm:inline">Settings</span>
+                </button>
+              )}
+
+              {/* PiP Button */}
+              {!isYouTube && (
+                <button
+                  onClick={togglePiP}
+                  className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
+                  title="Picture in Picture (P)"
+                >
+                  📺
+                </button>
+              )}
+
+              {/* Fullscreen Button */}
+              <button
+                onClick={toggleFullscreen}
+                className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
+                title="Fullscreen (F)"
+              >
+                ⛶
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
