@@ -56,13 +56,19 @@ export default function App() {
     }
   });
 
-  // Initialize Telegram WebApp SDK if opened inside Telegram
+  // Initialize Telegram WebApp SDK & Deep Linking if opened inside Telegram
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
       const tg = (window as any).Telegram.WebApp;
       tg.ready();
       tg.expand();
-      console.log('Telegram WebApp Initialized for user:', tg.initDataUnsafe?.user?.first_name);
+
+      // Check if bot passed a specific channel ID (e.g. ?startapp=sony-aath)
+      const startParam = tg.initDataUnsafe?.start_param;
+      if (startParam) {
+        console.log('Telegram Bot passed start parameter:', startParam);
+        setSelectedChannelId(startParam);
+      }
     }
   }, []);
 
