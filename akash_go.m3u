@@ -1,0 +1,14 @@
+#EXTM3U
+# Akash Go IPTV Channels - Working Streams
+# Last validated: July 28, 2026
+
+#EXTINF:-1 tvg-logo="https://tstatic.akash-go.com/cms-ui/images/custom-content/1735560559088.png" group-title="Akash Go",Somoy TV HD (A)
+https://live.thebosstv.com:30443/dwlive/Somoy-TV/playlist.m3u8
+
+#EXTINF:-1 tvg-logo="https://tstatic.akash-go.com/cms-ui/images/custom-content/1735556516924.png" group-title="Akash Go",Channel 24 HD (A)
+#EXTVLCOPT:http-referrer=https://www.jagobd.com/
+#EXTVLCOPT:http-user-agent=Mozilla/5.0
+https://static.jagobd.com.bd/c3VydmVyX8RpbEU9Mi8xNy8yMFDEEHGcfRgzQ6NTAgdEoaeFzbF92YWxIZTO0U0ezN1IzMyfvcEdsEfeDeKiNkVN3PTOmdFseWRtaW51aiPhnPTI2/channel24-sg-e8e.stream/playlist.m3u8?wmsAuthSign=|Referer=https://www.jagobd.com/
+
+#EXTINF:-1 tvg-logo="https://i.imgur.com/tPZKfLr.png" group-title="Akash Go",Deepto TV HD (A)
+https://byphdgllyk.gpcdn.net/hls/deeptotv/0_1/index.m3u8

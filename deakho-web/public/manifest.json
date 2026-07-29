@@ -1,0 +1,17 @@
+{
+  "name": "DeakhoTV - IPTV Web Player",
+  "short_name": "DeakhoTV",
+  "description": "Live IPTV Stream Player for Bangladeshi, News, Sports & Entertainment channels",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e17",
+  "theme_color": "#0a0e17",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
