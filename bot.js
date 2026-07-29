@@ -11,7 +11,7 @@
 const https = require('https');
 
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_TELEGRAM_BOT_TOKEN_HERE';
-const WEBAPP_URL = process.env.WEBAPP_URL || 'https://deakho-tv.vercel.app'; // Replace with your hosted Vercel / Netlify URL
+const WEBAPP_URL = process.env.WEBAPP_URL || 'https://deakho.vercel.app'; // Replace with your hosted Vercel / Netlify URL
 
 const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 

@@ -1,0 +1,8 @@
+{
+  "framework": "vite",
+  "buildCommand": "cd deakho-web && npm run build",
+  "outputDirectory": "deakho-web/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
