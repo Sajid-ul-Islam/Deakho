@@ -110,24 +110,65 @@ body {
   border-color: var(--border-color);
 }
 
-/* Water drop expansion animation overlay */
-.water-drop-overlay {
+/* Actual Water Droplet Liquid Splash Overlay */
+.water-droplet-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  inset: 0;
   pointer-events: none;
-  z-index: 9999;
-  border-radius: 50%;
-  transform: translate(-50%, -50%) scale(0);
-  transition: transform 0.65s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.65s ease;
-  opacity: 1;
+  z-index: 99999;
+  overflow: hidden;
 }
 
-.water-drop-overlay.animating {
-  transform: translate(-50%, -50%) scale(3);
-  opacity: 0;
+/* Falling Water Teardrop Droplet */
+.water-droplet-drop {
+  position: absolute;
+  width: 22px;
+  height: 34px;
+  background: radial-gradient(circle at 40% 30%, #ffffff, var(--accent) 65%, #00bfff 100%);
+  border-radius: 50% 50% 50% 50% / 70% 70% 30% 30%;
+  box-shadow: 0 0 25px var(--accent), inset 0 0 12px #ffffff;
+  transform: translate(-50%, -100%);
+  animation: dropletFall 0.25s cubic-bezier(0.55, 0.055, 0.675, 0.19) forwards;
+}
+
+@keyframes dropletFall {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50px) scale(0.6);
+  }
+  100% {
+    opacity: 0.8;
+    transform: translate(-50%, 0px) scale(1.2);
+  }
+}
+
+/* Concentric Liquid Splash Waves expanding from drop impact */
+.water-droplet-splash-wave {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  animation: liquidSplashWave 0.8s cubic-bezier(0.12, 0.88, 0.25, 1) forwards;
+  box-shadow: 0 0 70px rgba(0, 0, 0, 0.5), inset 0 0 50px rgba(255, 255, 255, 0.4);
+  border: 4px solid var(--accent);
+}
+
+@keyframes liquidSplashWave {
+  0% {
+    width: 0px;
+    height: 0px;
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0);
+  }
+  60% {
+    opacity: 0.95;
+  }
+  100% {
+    width: 320vmax;
+    height: 320vmax;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 /* View Transition circular expand for browsers supporting document.startViewTransition */
@@ -154,7 +195,7 @@ body {
 }
 
 .water-drop-transition::view-transition-new(root) {
-  animation: waterDropExpand 0.7s cubic-bezier(0.25, 1, 0.5, 1);
+  animation: waterDropExpand 0.75s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
 /* Keyframe animations */
@@ -180,3 +221,48 @@ body {
 .animate-slideUp {
   animation: slideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Sticky Floating Mini-Player Styles */
+.sticky-mini-player {
+  position: fixed !important;
+  z-index: 50 !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 15px var(--accent) !important;
+  border: 1px solid var(--accent) !important;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@media (max-width: 768px) {
+  .sticky-mini-player {
+    bottom: 4.5rem !important;
+    right: 0.75rem !important;
+    left: auto !important;
+    top: auto !important;
+    width: 190px !important;
+    max-width: 55vw !important;
+    border-radius: 1rem !important;
+    z-index: 90 !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .sticky-mini-player {
+    bottom: 1.5rem !important;
+    right: 1.5rem !important;
+    width: 24rem !important;
+    border-radius: 1.25rem !important;
+  }
+}
+
+/* Mobile Safe-Area & Touch Utility Classes */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-center: center;
+}
+

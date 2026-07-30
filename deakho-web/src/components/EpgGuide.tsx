@@ -38,8 +38,8 @@ export default function EpgGuide({ channels, selectedChannelId, onSelectChannel 
       </div>
 
       {/* Channel Rows */}
-      <div className="divide-y divide-border-dark/60 max-h-[420px] overflow-y-auto">
-        {channels.slice(0, 10).map((ch) => {
+      <div className="divide-y divide-border-dark/60 max-h-[500px] overflow-y-auto">
+        {channels.map((ch) => {
           const info = mockPrograms[ch.id] || {
             current: `${ch.name} Live Stream`,
             next: `${ch.name} Prime Time`,

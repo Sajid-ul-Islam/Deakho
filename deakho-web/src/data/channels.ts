@@ -722,6 +722,70 @@ const channels: Channel[] = [
       },
     ],
   },
+  {
+    id: 'peace-tv-bangla',
+    name: 'Peace TV Bangla HD',
+    logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/e/e0/Peace_TV_Bangla_Logo.png/220px-Peace_TV_Bangla_Logo.png',
+    group: 'Religious',
+    urls: [
+      {
+        url: 'https://peacetv.directfwd.com/peacetv/peacetv_bangla.m3u8',
+        label: 'Primary HD Stream',
+      },
+      {
+        url: 'https://www.youtube.com/embed/live_stream?channel=UC8x5b0Q5a72U2-vP009c91A',
+        label: 'YouTube Live Stream',
+      },
+    ],
+  },
+  {
+    id: 'peace-tv-english',
+    name: 'Peace TV English HD',
+    logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/1/15/Peace_TV_Logo.png/220px-Peace_TV_Logo.png',
+    group: 'Religious',
+    urls: [
+      {
+        url: 'https://peacetv.directfwd.com/peacetv/peacetv_english.m3u8',
+        label: 'Primary HD Stream',
+      },
+      {
+        url: 'https://www.youtube.com/embed/live_stream?channel=UCqR5W2N6m2-H6g403W1eY8w',
+        label: 'YouTube Live Stream',
+      },
+    ],
+  },
+  {
+    id: 'peace-tv-urdu',
+    name: 'Peace TV Urdu HD',
+    logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/e/e2/Peace_TV_Urdu_logo.png/220px-Peace_TV_Urdu_logo.png',
+    group: 'Religious',
+    urls: [
+      {
+        url: 'https://peacetv.directfwd.com/peacetv/peacetv_urdu.m3u8',
+        label: 'Primary HD Stream',
+      },
+      {
+        url: 'https://www.youtube.com/embed/live_stream?channel=UCJ3u_vF7l_m1Z6K9z8_j2gQ',
+        label: 'YouTube Live Stream',
+      },
+    ],
+  },
+  {
+    id: 'peace-tv-chinese',
+    name: 'Peace TV Chinese HD',
+    logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/1/15/Peace_TV_Logo.png/220px-Peace_TV_Logo.png',
+    group: 'Religious',
+    urls: [
+      {
+        url: 'https://peacetv.directfwd.com/peacetv/peacetv_chinese.m3u8',
+        label: 'Primary HD Stream',
+      },
+      {
+        url: 'https://www.youtube.com/embed/live_stream?channel=UC7x5b0Q5a72U2-vP009c91A',
+        label: 'YouTube Live Stream',
+      },
+    ],
+  },
 
   // --- DOCUMENTARY ---
   {

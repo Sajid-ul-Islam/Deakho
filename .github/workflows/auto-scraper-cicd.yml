@@ -1,0 +1,51 @@
+name: DeakhoTV Auto-Scraper & CI/CD Pipeline
+
+on:
+  schedule:
+    # Runs 2 times every day at 00:00 UTC (6:00 AM BD) and 12:00 UTC (6:00 PM BD)
+    - cron: '0 0,12 * * *'
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # Allows manual 1-click trigger from GitHub Actions UI
+
+jobs:
+  scrape-and-build:
+    name: Scrape Streams & Build Production Web App
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: 📁 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20 Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: deakho-web/package-lock.json
+
+      - name: 📦 Install Web App Dependencies
+        run: |
+          cd deakho-web
+          npm ci || npm install
+
+      - name: 🔍 Execute Auto-Scraper Engine (2x Daily Channel & Movie Sync)
+        run: node scripts/auto-scraper.js
+
+      - name: 🏗️ Verify & Build Production Bundle
+        run: |
+          cd deakho-web
+          npm run build
+
+      - name: 🚀 Auto-Commit Updated Streams & Catalog to GitHub
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "auto: Scraped active IPTV streams & latest movie catalog [skip ci]"
+          commit_user_name: "DeakhoTV Bot"
+          commit_user_email: "bot@deakhotv.internal"
+          branch: ${{ github.head_ref || github.ref_name }}

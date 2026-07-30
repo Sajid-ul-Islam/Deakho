@@ -6,12 +6,13 @@ import type { Channel, Movie } from './types';
 import Header, { type AccentColor } from './components/Header';
 import ChannelCard from './components/ChannelCard';
 import MovieCard from './components/MovieCard';
-import VideoPlayer from './components/VideoPlayer';
 import ImportM3uModal from './components/ImportM3uModal';
 import AdultAlertModal from './components/AdultAlertModal';
 import PlexHeroBanner from './components/PlexHeroBanner';
 import EpgGuide from './components/EpgGuide';
 import MultiScreenPlayer from './components/MultiScreenPlayer';
+import YouTubeCinemaLayout from './components/YouTubeCinemaLayout';
+import LocalMediaPlayerModal from './components/LocalMediaPlayerModal';
 
 export default function App() {
   const [appMode, setAppMode] = useState<'tv' | 'movies'>('tv');
@@ -22,6 +23,7 @@ export default function App() {
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [currentUrlIndex, setCurrentUrlIndex] = useState(0);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isLocalPlayerModalOpen, setIsLocalPlayerModalOpen] = useState(false);
   const [isAdultModalOpen, setIsAdultModalOpen] = useState(false);
   const [isMultiScreen, setIsMultiScreen] = useState(false);
   const [pendingChannelId, setPendingChannelId] = useState<string | null>(null);
@@ -104,15 +106,30 @@ export default function App() {
     [isAgeVerified]
   );
 
+  // Water drop ripple overlay state
+  const [ripple, setRipple] = useState<{ active: boolean; x: number; y: number; color: string } | null>(null);
+
   // Water drop theme toggle handler
   const handleToggleTheme = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
       const newTheme = theme === 'dark' ? 'light' : 'dark';
-      const x = e.clientX;
-      const y = e.clientY;
+      const x = e.clientX || window.innerWidth / 2;
+      const y = e.clientY || window.innerHeight / 2;
 
       document.documentElement.style.setProperty('--drop-x', `${x}px`);
       document.documentElement.style.setProperty('--drop-y', `${y}px`);
+
+      // Spawn smooth water drop ripple animation
+      const targetColor = newTheme === 'light' ? '#f4f6f8' : '#181b1d';
+      setRipple({ active: true, x, y, color: targetColor });
+
+      setTimeout(() => {
+        setTheme(newTheme);
+      }, 180);
+
+      setTimeout(() => {
+        setRipple(null);
+      }, 750);
 
       if ('startViewTransition' in document) {
         document.documentElement.classList.add('water-drop-transition');
@@ -121,8 +138,6 @@ export default function App() {
         }).finished.then(() => {
           document.documentElement.classList.remove('water-drop-transition');
         });
-      } else {
-        setTheme(newTheme);
       }
     },
     [theme]
@@ -343,7 +358,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-deep-blue text-text-primary selection:bg-accent selection:text-black transition-colors duration-300">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-deep-blue text-text-primary selection:bg-accent selection:text-black transition-colors duration-300 flex flex-col relative">
       <Header
         totalChannels={allChannels.length}
         activeGroup={activeGroup}
@@ -354,6 +369,7 @@ export default function App() {
         onMovieSearchChange={setMovieSearchQuery}
         groups={groups}
         onOpenImportModal={() => setIsImportModalOpen(true)}
+        onOpenLocalPlayerModal={() => setIsLocalPlayerModalOpen(true)}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         accent={accent}
@@ -364,17 +380,19 @@ export default function App() {
         onAppModeChange={setAppMode}
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Active Cinema Video Player */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6 w-full max-w-full overflow-x-hidden">
+        {/* YouTube Style Cinema Video Player & Layout */}
         {selectedChannel ? (
-          <div className="mb-6 animate-slideUp">
-            <VideoPlayer
+          <div className="mb-8">
+            <YouTubeCinemaLayout
               channel={selectedChannel}
+              allChannels={allChannels}
               urlIndex={currentUrlIndex}
               onClose={handleClosePlayer}
               onSwitchUrl={handleSwitchUrl}
               onNextChannel={handleNextChannel}
               onPrevChannel={handlePrevChannel}
+              onSelectChannel={handleSelectChannel}
               isFavorite={favorites.includes(selectedChannel.id)}
               onToggleFavorite={() => toggleFavorite(selectedChannel.id)}
             />
@@ -569,6 +587,12 @@ export default function App() {
         onImportChannels={handleImportChannels}
       />
 
+      {/* Local & Network Universal Media Player Modal */}
+      <LocalMediaPlayerModal
+        isOpen={isLocalPlayerModalOpen}
+        onClose={() => setIsLocalPlayerModalOpen(false)}
+      />
+
       {/* 18+ Adult Age Verification Modal */}
       <AdultAlertModal
         isOpen={isAdultModalOpen}
@@ -576,8 +600,80 @@ export default function App() {
         onCancel={handleCancelAge}
       />
 
+      {/* Mobile Touch Dock (Floating Bottom Navigation for Mobile UI/UX) */}
+      <nav className="sm:hidden fixed bottom-3 left-3 right-3 z-40 bg-dark-card/90 backdrop-blur-xl border border-border-dark/80 rounded-2xl p-1.5 flex items-center justify-around shadow-2xl pb-safe animate-slideUp">
+        <button
+          onClick={() => setAppMode('tv')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
+            appMode === 'tv' ? 'bg-accent text-black shadow-md' : 'text-text-muted hover:text-white'
+          }`}
+        >
+          <span className="text-sm">📺</span>
+          <span>Live TV</span>
+        </button>
+
+        <button
+          onClick={() => setAppMode('movies')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
+            appMode === 'movies' ? 'bg-accent text-black shadow-md' : 'text-text-muted hover:text-white'
+          }`}
+        >
+          <span className="text-sm">🎬</span>
+          <span>Movies</span>
+        </button>
+
+        <button
+          onClick={() => handleGroupChange('Favorites')}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
+            activeGroup === 'Favorites' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'text-text-muted hover:text-white'
+          }`}
+        >
+          <span className="text-sm">⭐</span>
+          <span>Favorites</span>
+        </button>
+
+        <button
+          onClick={() => setIsMultiScreen(!isMultiScreen)}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
+            isMultiScreen ? 'bg-accent text-black shadow-md' : 'text-text-muted hover:text-white'
+          }`}
+        >
+          <span className="text-sm">📺📺</span>
+          <span>MultiView</span>
+        </button>
+
+        <button
+          onClick={() => setIsImportModalOpen(true)}
+          className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-[10px] font-extrabold text-text-muted hover:text-white transition-all cursor-pointer"
+        >
+          <span className="text-sm">📁</span>
+          <span>Import</span>
+        </button>
+      </nav>
+
+      {/* Actual Water Droplet Liquid Splash Overlay */}
+      {ripple && (
+        <div className="water-droplet-container">
+          <div
+            className="water-droplet-drop"
+            style={{
+              left: `${ripple.x}px`,
+              top: `${ripple.y}px`,
+            }}
+          />
+          <div
+            className="water-droplet-splash-wave"
+            style={{
+              left: `${ripple.x}px`,
+              top: `${ripple.y}px`,
+              backgroundColor: ripple.color,
+            }}
+          />
+        </div>
+      )}
+
       {/* Footer */}
-      <footer className="border-t border-border-dark mt-16 bg-deep-blue transition-colors">
+      <footer className="border-t border-border-dark mt-16 pb-20 sm:pb-6 bg-deep-blue transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
@@ -585,7 +681,7 @@ export default function App() {
                 P
               </div>
               <span className="text-xs text-text-muted font-medium">
-                DeakhoTV Plex Edition v6.0 · Movie Instant Scraper Active
+                DeakhoTV Ultimate Edition v6.0 · Movie Instant Scraper Active
               </span>
             </div>
             <p className="text-[11px] text-text-muted text-center">

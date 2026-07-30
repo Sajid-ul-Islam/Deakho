@@ -1,0 +1,29 @@
+name: Stream Health Check & Link Audit
+
+on:
+  schedule:
+    # Runs every day at 06:00 UTC (12:00 PM BD)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    name: Audit Live Stream Health & Prune Dead Links
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📁 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 🩺 Run Stream Health Audit Engine
+        run: node scripts/health-check.js
+
+      - name: 📊 Upload Stream Health Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-health-report
+          path: stream-health-report.json

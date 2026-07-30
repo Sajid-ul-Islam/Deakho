@@ -27,6 +27,7 @@ interface HeaderProps {
   onMovieSearchChange: (query: string) => void;
   groups: readonly Group[];
   onOpenImportModal?: () => void;
+  onOpenLocalPlayerModal?: () => void;
   theme: 'dark' | 'light';
   onToggleTheme: (e: React.MouseEvent<HTMLButtonElement>) => void;
   accent: AccentColor;
@@ -79,6 +80,7 @@ export default function Header({
   onMovieSearchChange,
   groups,
   onOpenImportModal,
+  onOpenLocalPlayerModal,
   theme,
   onToggleTheme,
   accent,
@@ -89,37 +91,44 @@ export default function Header({
   onAppModeChange,
 }: HeaderProps) {
   const [showPalette, setShowPalette] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-30 plex-glass border-b border-border-dark shadow-xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-4 py-3.5">
-          {/* Top row: Brand + Action buttons */}
-          <div className="flex items-center justify-between">
+    <header className="sticky top-0 z-30 plex-glass border-b border-border-dark shadow-xl w-full max-w-full overflow-x-hidden">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full max-w-full">
+        <div className="flex flex-col gap-3 py-2.5 sm:py-3 w-full max-w-full min-w-0">
+          {/* Top row: Brand + Mode Switcher + Action buttons */}
+          <div className="flex items-center justify-between gap-2.5 w-full max-w-full min-w-0">
             <div className="flex items-center gap-3">
+              {/* Mobile Hamburger Drawer Menu Toggle */}
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="md:hidden size-9 rounded-xl bg-dark-card border border-border-dark flex items-center justify-center text-text-primary hover:text-accent transition-colors"
+                title="Toggle Mobile Navigation Menu"
+              >
+                {isMobileMenuOpen ? '✕' : '☰'}
+              </button>
+
               {/* Accent Logo */}
               <div className="flex items-center justify-center size-10 rounded-xl bg-accent text-black font-black text-lg shadow-md shadow-accent/20 transition-colors duration-300">
                 P
               </div>
 
               <div>
-                <h1 className="text-xl font-extrabold text-text-primary tracking-tight">
+                <h1 className="text-lg sm:text-xl font-extrabold text-text-primary tracking-tight">
                   Deakho<span className="text-accent transition-colors duration-300">TV</span>
-                  <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded bg-accent/20 text-accent uppercase tracking-widest transition-colors duration-300">
-                    Plex Pass
-                  </span>
                 </h1>
-                <p className="text-[11px] text-text-muted">
+                <p className="text-[11px] text-text-muted hidden sm:block">
                   {totalChannels} live channels & VOD Movies · Instant Scraper
                 </p>
               </div>
             </div>
 
-            {/* Main Mode Switcher (Live TV vs Movies) */}
-            <div className="flex items-center gap-1 bg-dark-card p-1 rounded-2xl border border-border-dark shadow-inner">
+            {/* Desktop Mode Switcher (Live TV vs Movies) */}
+            <div className="hidden md:flex items-center gap-1 bg-dark-card p-1 rounded-2xl border border-border-dark shadow-inner">
               <button
                 onClick={() => onAppModeChange('tv')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
                   appMode === 'tv'
                     ? 'bg-accent text-black shadow-md shadow-accent/20 scale-[1.02]'
                     : 'text-text-muted hover:text-text-primary'
@@ -129,7 +138,7 @@ export default function Header({
               </button>
               <button
                 onClick={() => onAppModeChange('movies')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
                   appMode === 'movies'
                     ? 'bg-accent text-black shadow-md shadow-accent/20 scale-[1.02]'
                     : 'text-text-muted hover:text-text-primary'
@@ -139,8 +148,8 @@ export default function Header({
               </button>
             </div>
 
-            {/* Top actions */}
-            <div className="flex items-center gap-2.5">
+            {/* Top Right Action Suite */}
+            <div className="flex items-center gap-2">
               {/* Multi-Screen Split Mode Button */}
               {onToggleMultiScreen && appMode === 'tv' && (
                 <button
@@ -160,11 +169,11 @@ export default function Header({
                       d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
                     />
                   </svg>
-                  <span className="hidden sm:inline">Multi-Screen</span>
+                  <span className="hidden lg:inline">Multi-Screen</span>
                 </button>
               )}
 
-              {/* Color Palette Switcher */}
+              {/* Color Palette Switcher Dropdown */}
               <div className="relative">
                 <button
                   onClick={() => setShowPalette(!showPalette)}
@@ -230,26 +239,37 @@ export default function Header({
                 )}
               </button>
 
+              {onOpenLocalPlayerModal && (
+                <button
+                  onClick={onOpenLocalPlayerModal}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-card hover:bg-dark-hover border border-border-dark text-text-primary text-xs font-bold transition-all cursor-pointer shadow-sm"
+                  title="Open Local / Network Media Player"
+                >
+                  <span>🎬</span>
+                  <span>Media Player</span>
+                </button>
+              )}
+
               {onOpenImportModal && (
                 <button
                   onClick={onOpenImportModal}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent/15 hover:bg-accent/25 border border-accent/30 text-accent text-xs font-bold transition-all cursor-pointer shadow-sm"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent/15 hover:bg-accent/25 border border-accent/30 text-accent text-xs font-bold transition-all cursor-pointer shadow-sm"
                   title="Import custom M3U playlist"
                 >
                   <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
-                  <span>Import M3U</span>
+                  <span>Import</span>
                 </button>
               )}
             </div>
           </div>
 
-          {/* Bottom row: Category Pills + Search */}
+          {/* Desktop Navigation Row: Category Pills + Search */}
           {appMode === 'tv' ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 w-full max-w-full min-w-0">
               {/* Group filters */}
-              <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none flex-1 min-w-0 max-w-full">
                 {groups.map((group) => (
                   <button
                     key={group}
@@ -270,11 +290,8 @@ export default function Header({
                 ))}
               </div>
 
-              {/* Spacer */}
-              <div className="flex-1" />
-
-              {/* Search TV Channels */}
-              <div className="relative max-w-[220px] shrink-0">
+              {/* Search TV Channels Input */}
+              <div className="relative w-48 lg:w-60 shrink-0 hidden sm:block">
                 <svg
                   className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-text-muted pointer-events-none"
                   fill="none"
@@ -299,10 +316,10 @@ export default function Header({
             </div>
           ) : (
             /* Movie Instant Scraper Search Bar */
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 w-full max-w-full min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-accent">🔍 Movie Instant Scraper:</span>
-                <span className="text-[11px] text-text-muted hidden sm:inline">
+                <span className="text-[11px] text-text-muted hidden md:inline">
                   Search any movie title worldwide to instantly scrape & stream!
                 </span>
               </div>
@@ -323,16 +340,114 @@ export default function Header({
                 </svg>
                 <input
                   type="text"
-                  placeholder="Type any movie title (e.g. Avatar, Oppenheimer, Spider-Man)..."
+                  placeholder="Type any movie title (e.g. Avatar, Oppenheimer)..."
                   value={movieSearchQuery}
                   onChange={(e) => onMovieSearchChange(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-deep-blue border border-accent/40 text-xs text-white placeholder-text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all shadow-md"
+                  className="w-full pl-10 pr-4 py-1.5 rounded-xl bg-deep-blue border border-accent/40 text-xs text-white placeholder-text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all shadow-md"
                 />
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Mobile Drawer Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden border-t border-border-dark bg-dark-card/95 backdrop-blur-xl p-4 flex flex-col gap-4 animate-fadeIn shadow-2xl">
+          {/* Mode Switcher */}
+          <div className="flex items-center gap-2 p-1 rounded-2xl bg-deep-blue border border-border-dark">
+            <button
+              onClick={() => { onAppModeChange('tv'); setIsMobileMenuOpen(false); }}
+              className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all ${
+                appMode === 'tv' ? 'bg-accent text-black' : 'text-text-muted'
+              }`}
+            >
+              📺 Live TV
+            </button>
+            <button
+              onClick={() => { onAppModeChange('movies'); setIsMobileMenuOpen(false); }}
+              className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all ${
+                appMode === 'movies' ? 'bg-accent text-black' : 'text-text-muted'
+              }`}
+            >
+              🎬 Movies & VOD
+            </button>
+          </div>
+
+          {/* Search Input for Mobile */}
+          {appMode === 'tv' ? (
+            <input
+              type="text"
+              placeholder="🔍 Search live channels..."
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="w-full px-3.5 py-2 rounded-xl bg-deep-blue border border-border-dark text-xs text-white placeholder-text-muted"
+            />
+          ) : (
+            <input
+              type="text"
+              placeholder="🔍 Type movie title to scrape..."
+              value={movieSearchQuery}
+              onChange={(e) => onMovieSearchChange(e.target.value)}
+              className="w-full px-3.5 py-2 rounded-xl bg-deep-blue border border-accent/40 text-xs text-white placeholder-text-muted"
+            />
+          )}
+
+          {/* Category List for TV */}
+          {appMode === 'tv' && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase font-bold text-text-muted">Categories</span>
+              <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                {groups.map((group) => (
+                  <button
+                    key={group}
+                    onClick={() => {
+                      onGroupChange(group);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold ${
+                      activeGroup === group
+                        ? 'bg-accent text-black font-extrabold'
+                        : 'bg-deep-blue text-text-secondary border border-border-dark'
+                    }`}
+                  >
+                    <span>{groupIcons[group] || '📺'}</span>
+                    <span className="truncate">{group}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Mobile Media Player Button */}
+          {onOpenLocalPlayerModal && (
+            <button
+              onClick={() => {
+                onOpenLocalPlayerModal();
+                setIsMobileMenuOpen(false);
+              }}
+              className="w-full py-2 rounded-xl bg-dark-card border border-border-dark text-white font-extrabold text-xs flex items-center justify-center gap-2"
+            >
+              <span>🎬</span>
+              <span>Open Local / Network Media Player</span>
+            </button>
+          )}
+
+          {/* Mobile Import Button */}
+          {onOpenImportModal && (
+            <button
+              onClick={() => {
+                onOpenImportModal();
+                setIsMobileMenuOpen(false);
+              }}
+              className="w-full py-2 rounded-xl bg-accent/20 border border-accent/40 text-accent font-extrabold text-xs flex items-center justify-center gap-2"
+            >
+              <span>📁</span>
+              <span>Import Custom M3U Playlist</span>
+            </button>
+          )}
+        </div>
+      )}
     </header>
   );
 }

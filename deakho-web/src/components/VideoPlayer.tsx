@@ -57,6 +57,7 @@ export default function VideoPlayer({
   isFavorite = false,
   onToggleFavorite,
 }: VideoPlayerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -69,6 +70,14 @@ export default function VideoPlayer({
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [failoverMsg, setFailoverMsg] = useState<string | null>(null);
+
+  // Aspect Ratio & Object Fit State
+  const [fitMode, setFitMode] = useState<'contain' | 'cover' | 'fill'>('contain');
+  const [aspectRatio, setAspectRatio] = useState<'16/9' | '4/3' | '21/9' | 'auto'>('16/9');
+
+  // Sticky Floating Mini-Player State
+  const [isScrolledOut, setIsScrolledOut] = useState(false);
+  const [isPinnedSticky, setIsPinnedSticky] = useState(false);
 
   // Quality, Audio, Subtitle tracks
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
@@ -92,6 +101,25 @@ export default function VideoPlayer({
 
   const currentUrl = channel?.urls[urlIndex];
   const isYouTube = currentUrl?.url.includes('youtube.com') || currentUrl?.url.includes('youtu.be');
+
+  // IntersectionObserver to auto-detect when main player scrolls off screen
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // When less than 25% of player is visible, trigger sticky mode if video is playing
+        setIsScrolledOut(!entry.isIntersecting);
+      },
+      { threshold: 0.25 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const isStickyActive = (isScrolledOut || isPinnedSticky) && isPlaying;
 
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
@@ -272,15 +300,21 @@ export default function VideoPlayer({
   };
 
   // DVR Seek Controls (-10s / +10s / Go Live)
-  const handleRewind = (seconds: number) => {
-    if (isYouTube || !videoRef.current) return;
-    videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - seconds);
-  };
+  const handleRewind = useCallback(
+    (seconds: number) => {
+      if (isYouTube || !videoRef.current) return;
+      videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - seconds);
+    },
+    [isYouTube]
+  );
 
-  const handleForward = (seconds: number) => {
-    if (isYouTube || !videoRef.current) return;
-    videoRef.current.currentTime = videoRef.current.currentTime + seconds;
-  };
+  const handleForward = useCallback(
+    (seconds: number) => {
+      if (isYouTube || !videoRef.current) return;
+      videoRef.current.currentTime = videoRef.current.currentTime + seconds;
+    },
+    [isYouTube]
+  );
 
   const handleSyncLive = () => {
     if (isYouTube || !videoRef.current) return;
@@ -406,340 +440,450 @@ export default function VideoPlayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, toggleFullscreen, togglePiP, toggleMute, onClose]);
+  }, [togglePlay, toggleFullscreen, togglePiP, toggleMute, onClose, handleRewind, handleForward]);
+
+  const scrollToPlayer = () => {
+    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setIsPinnedSticky(false);
+  };
 
   if (!channel || !currentUrl) return null;
 
+  const aspectClass =
+    aspectRatio === '4/3'
+      ? 'aspect-[4/3]'
+      : aspectRatio === '21/9'
+      ? 'aspect-[21/9]'
+      : 'aspect-video w-full';
+
+  const objectFitClass =
+    fitMode === 'cover'
+      ? 'object-cover'
+      : fitMode === 'fill'
+      ? 'object-fill'
+      : 'object-contain';
+
   return (
-    <div
-      id="deakho-player-container"
-      onMouseMove={handleMouseMove}
-      className="relative w-full bg-black rounded-2xl overflow-hidden shadow-2xl border border-border-dark group flex flex-col"
-    >
-      {/* Video Container */}
-      <div className="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden">
-        {isYouTube ? (
-          <iframe
-            src={getYouTubeEmbedUrl(currentUrl.url)}
-            title={channel.name}
-            className="w-full h-full border-0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-          />
-        ) : (
-          <video
-            ref={videoRef}
-            className="w-full h-full object-contain"
-            playsInline
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onClick={togglePlay}
-          />
-        )}
-
-        {/* Live Stream Health Stats (Nerd Stats Overlay) */}
-        {showStats && (
-          <div className="absolute top-4 left-4 z-40 bg-black/85 backdrop-blur-md border border-accent/40 rounded-xl p-3 text-[11px] font-mono text-accent flex flex-col gap-1 shadow-2xl animate-fadeIn">
-            <div className="font-bold flex items-center justify-between border-b border-accent/30 pb-1 mb-1 text-white">
-              <span>📊 Stream Nerd Stats</span>
-              <button onClick={() => setShowStats(false)} className="text-text-muted hover:text-white">✕</button>
-            </div>
-            <div>Resolution: <span className="text-white">{streamStats.resolution}</span></div>
-            <div>Bitrate: <span className="text-white">{streamStats.bitrate}</span></div>
-            <div>Buffer: <span className="text-white">{streamStats.buffer}</span></div>
-            <div>FPS: <span className="text-white">{streamStats.fps} fps</span></div>
-            <div>Audio Boost: <span className="text-white">{audioBoost * 100}%</span></div>
-          </div>
-        )}
-
-        {/* Failover Notification */}
-        {failoverMsg && (
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-30 animate-fadeIn">
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-dark-card border border-accent/40 shadow-2xl text-accent font-bold text-xs">
-              <div className="size-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-              <span>{failoverMsg}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Error Notification */}
-        {error && (
-          <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center gap-3 z-30">
-            <div className="size-12 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center text-xl">
-              ⚠️
-            </div>
-            <p className="text-white text-sm font-semibold max-w-md">{error}</p>
-            <button
-              onClick={loadStream}
-              className="px-4 py-2 rounded-xl bg-accent text-black font-bold text-xs hover:scale-105 transition-transform cursor-pointer"
-            >
-              Retry Stream
-            </button>
-          </div>
-        )}
-
-        {/* Overlays / Settings Popup */}
-        {showSettingsMenu && !isYouTube && (
-          <div className="absolute right-4 bottom-16 z-40 bg-dark-card border border-border-dark p-3.5 rounded-2xl shadow-2xl text-xs text-white min-w-[220px] flex flex-col gap-3 animate-fadeIn">
-            <div className="flex items-center justify-between pb-2 border-b border-border-dark">
-              <span className="font-extrabold text-accent">⚙️ Audio & Quality Settings</span>
-              <button onClick={() => setShowSettingsMenu(false)} className="text-text-muted hover:text-white">✕</button>
-            </div>
-
-            {/* Audio Booster 200% Gain */}
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between text-[10px] text-text-muted uppercase font-bold">
-                <span>🔊 Audio Booster</span>
-                <span className="text-accent">{Math.round(audioBoost * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max="2.5"
-                step="0.1"
-                value={audioBoost}
-                onChange={(e) => handleAudioBoostChange(parseFloat(e.target.value))}
-                className="w-full h-1 accent-accent rounded cursor-pointer"
-              />
-            </div>
-
-            {/* Quality Selector */}
-            {qualityLevels.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-muted uppercase font-bold">📊 Quality</span>
-                <select
-                  value={currentQuality}
-                  onChange={(e) => handleChangeQuality(parseInt(e.target.value))}
-                  className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
-                >
-                  <option value={-1}>Auto (Adaptive)</option>
-                  {qualityLevels.map((lvl) => (
-                    <option key={lvl.index} value={lvl.index}>{lvl.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Audio Track Selector */}
-            {audioTracks.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-muted uppercase font-bold">🎙️ Audio Language</span>
-                <select
-                  value={currentAudio}
-                  onChange={(e) => handleChangeAudio(parseInt(e.target.value))}
-                  className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
-                >
-                  {audioTracks.map((tr) => (
-                    <option key={tr.id} value={tr.id}>{tr.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Subtitle Selector */}
-            {subtitleTracks.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-muted uppercase font-bold">💬 Subtitles</span>
-                <select
-                  value={currentSubtitle}
-                  onChange={(e) => handleChangeSubtitle(parseInt(e.target.value))}
-                  className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
-                >
-                  <option value={-1}>Off</option>
-                  {subtitleTracks.map((sub) => (
-                    <option key={sub.id} value={sub.id}>{sub.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Toggle Nerd Stats */}
-            <button
-              onClick={() => { setShowStats(!showStats); setShowSettingsMenu(false); }}
-              className="mt-1 py-1 px-2 rounded bg-deep-blue border border-border-dark text-[10px] text-text-muted hover:text-white transition-colors"
-            >
-              {showStats ? 'Hide Stream Stats' : '📊 Show Stream Health Stats'}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Control Bar Overlay */}
+    <div ref={containerRef} className="relative w-full">
       <div
-        className={`p-4 bg-gradient-to-t from-dark-card via-dark-card/90 to-transparent transition-opacity duration-300 ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        id="deakho-player-container"
+        onMouseMove={handleMouseMove}
+        className={`relative w-full bg-black overflow-hidden transition-all duration-300 group flex flex-col ${
+          isStickyActive
+            ? 'sticky-mini-player'
+            : 'rounded-none sm:rounded-2xl shadow-2xl border-y sm:border border-border-dark'
         }`}
       >
-        <div className="flex flex-col gap-3">
-          {/* Header Row */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              {channel.logo && (
-                <img
-                  src={channel.logo}
-                  alt={channel.name}
-                  className="size-8 rounded-lg object-contain bg-black/40 p-1 border border-border-dark"
-                />
-              )}
-              <div>
-                <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
-                  <span>{channel.name}</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent/20 text-accent uppercase">
-                    {channel.group}
-                  </span>
-                </h3>
-                <p className="text-[11px] text-text-muted">
-                  Source {urlIndex + 1} of {channel.urls.length}: {currentUrl.label}
-                </p>
-              </div>
+        {/* Sticky Mini-Player Floating Bar (Visible when scrolled out or pinned) */}
+        {isStickyActive && (
+          <div className="bg-dark-card/95 backdrop-blur-md px-3 py-1.5 border-b border-border-dark flex items-center justify-between z-50 text-xs">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <div className="size-2 rounded-full bg-streaming animate-pulse flex-shrink-0" />
+              <span className="font-bold text-white truncate max-w-[140px] sm:max-w-[200px]">
+                {channel.name}
+              </span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/20 text-accent font-extrabold">
+                LIVE
+              </span>
             </div>
-
-            <div className="flex items-center gap-2">
-              {/* Favorite Star */}
-              {onToggleFavorite && (
-                <button
-                  onClick={onToggleFavorite}
-                  className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                    isFavorite
-                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
-                      : 'bg-deep-blue border-border-dark text-text-muted hover:text-white'
-                  }`}
-                  title={isFavorite ? 'Remove Favorite' : 'Save Favorite'}
-                >
-                  ⭐
-                </button>
-              )}
-
-              {/* Close Button */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={scrollToPlayer}
+                className="px-2 py-1 rounded-lg bg-accent text-black font-extrabold text-[10px] hover:scale-105 transition-transform flex items-center gap-1 cursor-pointer"
+                title="Expand to Full View"
+              >
+                <span>🔍</span>
+                <span>Expand</span>
+              </button>
               <button
                 onClick={onClose}
-                className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
-                title="Close Player (Esc)"
+                className="p-1 rounded-lg bg-deep-blue text-text-muted hover:text-white text-xs cursor-pointer"
+                title="Close Stream"
               >
                 ✕
               </button>
             </div>
           </div>
+        )}
 
-          {/* Action Row */}
-          <div className="flex items-center justify-between gap-4 pt-1">
-            <div className="flex items-center gap-2">
-              {!isYouTube && (
-                <>
-                  <button
-                    onClick={togglePlay}
-                    className="p-2.5 rounded-xl bg-accent text-black hover:scale-105 transition-transform cursor-pointer shadow-md"
-                    title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                  >
-                    {isPlaying ? (
-                      <svg className="size-4 fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
-                    ) : (
-                      <svg className="size-4 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                    )}
-                  </button>
+        {/* Video Container */}
+        <div className={`relative ${aspectClass} w-full bg-black flex items-center justify-center overflow-hidden`}>
+          {isYouTube ? (
+            <iframe
+              src={getYouTubeEmbedUrl(currentUrl.url)}
+              title={channel.name}
+              className="w-full h-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              className={`w-full h-full ${objectFitClass}`}
+              playsInline
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onClick={togglePlay}
+            />
+          )}
 
-                  {/* DVR Time-Shift Controls */}
-                  <button
-                    onClick={() => handleRewind(10)}
-                    className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white text-xs font-bold transition-colors cursor-pointer"
-                    title="Rewind 10 Seconds (←)"
-                  >
-                    ↺ 10s
-                  </button>
-                  <button
-                    onClick={() => handleForward(10)}
-                    className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white text-xs font-bold transition-colors cursor-pointer"
-                    title="Forward 10 Seconds (→)"
-                  >
-                    10s ↻
-                  </button>
-                  <button
-                    onClick={handleSyncLive}
-                    className="px-2.5 py-1.5 rounded-xl bg-streaming/15 border border-streaming/30 text-streaming text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
-                    title="Sync to Live Stream"
-                  >
-                    <div className="size-1.5 rounded-full bg-streaming animate-pulse" />
-                    <span>LIVE</span>
-                  </button>
-                </>
-              )}
+          {/* Live Stream Health Stats (Nerd Stats Overlay) */}
+          {showStats && (
+            <div className="absolute top-4 left-4 z-40 bg-black/85 backdrop-blur-md border border-accent/40 rounded-xl p-3 text-[11px] font-mono text-accent flex flex-col gap-1 shadow-2xl animate-fadeIn">
+              <div className="font-bold flex items-center justify-between border-b border-accent/30 pb-1 mb-1 text-white">
+                <span>📊 Stream Nerd Stats</span>
+                <button onClick={() => setShowStats(false)} className="text-text-muted hover:text-white">✕</button>
+              </div>
+              <div>Resolution: <span className="text-white">{streamStats.resolution}</span></div>
+              <div>Bitrate: <span className="text-white">{streamStats.bitrate}</span></div>
+              <div>Buffer: <span className="text-white">{streamStats.buffer}</span></div>
+              <div>FPS: <span className="text-white">{streamStats.fps} fps</span></div>
+              <div>Audio Boost: <span className="text-white">{audioBoost * 100}%</span></div>
+            </div>
+          )}
 
-              {/* Prev / Next Channel Remote Buttons */}
-              {onPrevChannel && (
-                <button
-                  onClick={onPrevChannel}
-                  className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
-                  title="Previous Channel"
-                >
-                  ◀ Prev
-                </button>
-              )}
-              {onNextChannel && (
-                <button
-                  onClick={onNextChannel}
-                  className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
-                  title="Next Channel"
-                >
-                  Next ▶
-                </button>
-              )}
+          {/* Failover Notification */}
+          {failoverMsg && (
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-30 animate-fadeIn">
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-dark-card border border-accent/40 shadow-2xl text-accent font-bold text-xs">
+                <div className="size-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                <span>{failoverMsg}</span>
+              </div>
+            </div>
+          )}
 
-              {/* Volume Slider */}
-              {!isYouTube && (
-                <div className="hidden sm:flex items-center gap-2 ml-2">
-                  <button
-                    onClick={toggleMute}
-                    className="text-text-muted hover:text-white cursor-pointer"
-                    title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
+          {/* Error Notification */}
+          {error && (
+            <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center gap-3 z-30">
+              <div className="size-12 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center text-xl">
+                ⚠️
+              </div>
+              <p className="text-white text-sm font-semibold max-w-md">{error}</p>
+              <button
+                onClick={loadStream}
+                className="px-4 py-2 rounded-xl bg-accent text-black font-bold text-xs hover:scale-105 transition-transform cursor-pointer"
+              >
+                Retry Stream
+              </button>
+            </div>
+          )}
+
+          {/* Overlays / Settings Popup */}
+          {showSettingsMenu && !isYouTube && (
+            <div className="absolute right-4 bottom-16 z-40 bg-dark-card border border-border-dark p-3.5 rounded-2xl shadow-2xl text-xs text-white min-w-[240px] flex flex-col gap-3 animate-fadeIn">
+              <div className="flex items-center justify-between pb-2 border-b border-border-dark">
+                <span className="font-extrabold text-accent">⚙️ Audio & Display Settings</span>
+                <button onClick={() => setShowSettingsMenu(false)} className="text-text-muted hover:text-white">✕</button>
+              </div>
+
+              {/* Aspect Ratio Selector */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-muted uppercase font-bold">📐 Aspect Ratio</span>
+                <div className="grid grid-cols-4 gap-1">
+                  {(['16/9', '4/3', '21/9', 'auto'] as const).map((ratio) => (
+                    <button
+                      key={ratio}
+                      onClick={() => setAspectRatio(ratio)}
+                      className={`px-2 py-1 rounded text-[10px] font-bold border ${
+                        aspectRatio === ratio
+                          ? 'bg-accent text-black border-accent'
+                          : 'bg-deep-blue border-border-dark text-text-muted hover:text-white'
+                      }`}
+                    >
+                      {ratio === '16/9' ? '16:9' : ratio === '4/3' ? '4:3' : ratio === '21/9' ? '21:9' : 'Auto'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Stream Fit Mode */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-muted uppercase font-bold">🖼️ Video Fit Mode</span>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['contain', 'cover', 'fill'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setFitMode(mode)}
+                      className={`px-2 py-1 rounded text-[10px] font-bold border capitalize ${
+                        fitMode === mode
+                          ? 'bg-accent text-black border-accent'
+                          : 'bg-deep-blue border-border-dark text-text-muted hover:text-white'
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audio Booster 200% Gain */}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between text-[10px] text-text-muted uppercase font-bold">
+                  <span>🔊 Audio Booster</span>
+                  <span className="text-accent">{Math.round(audioBoost * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="2.5"
+                  step="0.1"
+                  value={audioBoost}
+                  onChange={(e) => handleAudioBoostChange(parseFloat(e.target.value))}
+                  className="w-full h-1 accent-accent rounded cursor-pointer"
+                />
+              </div>
+
+              {/* Quality Selector */}
+              {qualityLevels.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-text-muted uppercase font-bold">📊 Quality</span>
+                  <select
+                    value={currentQuality}
+                    onChange={(e) => handleChangeQuality(parseInt(e.target.value))}
+                    className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
                   >
-                    {isMuted || volume === 0 ? '🔇' : '🔊'}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeChange}
-                    className="w-16 h-1 accent-accent rounded cursor-pointer"
-                  />
+                    <option value={-1}>Auto (Adaptive)</option>
+                    {qualityLevels.map((lvl) => (
+                      <option key={lvl.index} value={lvl.index}>{lvl.name}</option>
+                    ))}
+                  </select>
                 </div>
               )}
+
+              {/* Audio Track Selector */}
+              {audioTracks.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-text-muted uppercase font-bold">🎙️ Audio Language</span>
+                  <select
+                    value={currentAudio}
+                    onChange={(e) => handleChangeAudio(parseInt(e.target.value))}
+                    className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
+                  >
+                    {audioTracks.map((tr) => (
+                      <option key={tr.id} value={tr.id}>{tr.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Subtitle Selector */}
+              {subtitleTracks.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-text-muted uppercase font-bold">💬 Subtitles</span>
+                  <select
+                    value={currentSubtitle}
+                    onChange={(e) => handleChangeSubtitle(parseInt(e.target.value))}
+                    className="bg-deep-blue text-white rounded-lg p-1.5 border border-border-dark text-xs"
+                  >
+                    <option value={-1}>Off</option>
+                    {subtitleTracks.map((sub) => (
+                      <option key={sub.id} value={sub.id}>{sub.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Toggle Nerd Stats */}
+              <button
+                onClick={() => { setShowStats(!showStats); setShowSettingsMenu(false); }}
+                className="mt-1 py-1 px-2 rounded bg-deep-blue border border-border-dark text-[10px] text-text-muted hover:text-white transition-colors"
+              >
+                {showStats ? 'Hide Stream Stats' : '📊 Show Stream Health Stats'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Control Bar Overlay */}
+        <div
+          className={`p-4 bg-gradient-to-t from-dark-card via-dark-card/90 to-transparent transition-opacity duration-300 ${
+            showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          <div className="flex flex-col gap-3">
+            {/* Header Row */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {channel.logo && (
+                  <img
+                    src={channel.logo}
+                    alt={channel.name}
+                    className="size-8 rounded-lg object-contain bg-black/40 p-1 border border-border-dark"
+                  />
+                )}
+                <div>
+                  <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                    <span>{channel.name}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent/20 text-accent uppercase">
+                      {channel.group}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-text-muted">
+                    Source {urlIndex + 1} of {channel.urls.length}: {currentUrl.label}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Favorite Star */}
+                {onToggleFavorite && (
+                  <button
+                    onClick={onToggleFavorite}
+                    className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                      isFavorite
+                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                        : 'bg-deep-blue border-border-dark text-text-muted hover:text-white'
+                    }`}
+                    title={isFavorite ? 'Remove Favorite' : 'Save Favorite'}
+                  >
+                    ⭐
+                  </button>
+                )}
+
+                {/* Close Button */}
+                <button
+                  onClick={onClose}
+                  className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
+                  title="Close Player (Esc)"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            {/* Right controls */}
-            <div className="flex items-center gap-2">
-              {/* Settings Gear */}
-              {!isYouTube && (
-                <button
-                  onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                  className="px-2.5 py-1.5 rounded-xl bg-deep-blue border border-border-dark text-accent hover:bg-dark-hover text-xs font-extrabold transition-colors cursor-pointer flex items-center gap-1"
-                  title="Stream Settings (Audio Boost, Quality, Subtitles)"
-                >
-                  <span>⚙️</span>
-                  <span className="hidden sm:inline">Settings</span>
-                </button>
-              )}
+            {/* Action Row */}
+            <div className="flex items-center justify-between gap-4 pt-1">
+              <div className="flex items-center gap-2">
+                {!isYouTube && (
+                  <>
+                    <button
+                      onClick={togglePlay}
+                      className="p-2.5 rounded-xl bg-accent text-black hover:scale-105 transition-transform cursor-pointer shadow-md"
+                      title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+                    >
+                      {isPlaying ? (
+                        <svg className="size-4 fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                      ) : (
+                        <svg className="size-4 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                      )}
+                    </button>
 
-              {/* PiP Button */}
-              {!isYouTube && (
+                    {/* DVR Time-Shift Controls */}
+                    <button
+                      onClick={() => handleRewind(10)}
+                      className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white text-xs font-bold transition-colors cursor-pointer"
+                      title="Rewind 10 Seconds (←)"
+                    >
+                      ↺ 10s
+                    </button>
+                    <button
+                      onClick={() => handleForward(10)}
+                      className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white text-xs font-bold transition-colors cursor-pointer"
+                      title="Forward 10 Seconds (→)"
+                    >
+                      10s ↻
+                    </button>
+                    <button
+                      onClick={handleSyncLive}
+                      className="px-2.5 py-1.5 rounded-xl bg-streaming/15 border border-streaming/30 text-streaming text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+                      title="Sync to Live Stream"
+                    >
+                      <div className="size-1.5 rounded-full bg-streaming animate-pulse" />
+                      <span>LIVE</span>
+                    </button>
+                  </>
+                )}
+
+                {/* Prev / Next Channel Remote Buttons */}
+                {onPrevChannel && (
+                  <button
+                    onClick={onPrevChannel}
+                    className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
+                    title="Previous Channel"
+                  >
+                    ◀ Prev
+                  </button>
+                )}
+                {onNextChannel && (
+                  <button
+                    onClick={onNextChannel}
+                    className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-secondary hover:text-white transition-colors cursor-pointer text-xs font-bold"
+                    title="Next Channel"
+                  >
+                    Next ▶
+                  </button>
+                )}
+
+                {/* Volume Slider */}
+                {!isYouTube && (
+                  <div className="hidden sm:flex items-center gap-2 ml-2">
+                    <button
+                      onClick={toggleMute}
+                      className="text-text-muted hover:text-white cursor-pointer"
+                      title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
+                    >
+                      {isMuted || volume === 0 ? '🔇' : '🔊'}
+                    </button>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={isMuted ? 0 : volume}
+                      onChange={handleVolumeChange}
+                      className="w-16 h-1 accent-accent rounded cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Right controls */}
+              <div className="flex items-center gap-2">
+                {/* Settings Gear */}
+                {!isYouTube && (
+                  <button
+                    onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                    className="px-2.5 py-1.5 rounded-xl bg-deep-blue border border-border-dark text-accent hover:bg-dark-hover text-xs font-extrabold transition-colors cursor-pointer flex items-center gap-1"
+                    title="Stream Settings (Audio Boost, Quality, Subtitles)"
+                  >
+                    <span>⚙️</span>
+                    <span className="hidden sm:inline">Settings</span>
+                  </button>
+                )}
+
+                {/* Pin Sticky Mini-Player Toggle */}
                 <button
-                  onClick={togglePiP}
+                  onClick={() => setIsPinnedSticky(!isPinnedSticky)}
+                  className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                    isPinnedSticky
+                      ? 'bg-accent/20 border-accent/40 text-accent font-bold'
+                      : 'bg-deep-blue border-border-dark text-text-muted hover:text-white'
+                  }`}
+                  title={isPinnedSticky ? 'Unpin Mini-Player' : 'Pin Sticky Mini-Player'}
+                >
+                  📌
+                </button>
+
+                {/* PiP Button */}
+                {!isYouTube && (
+                  <button
+                    onClick={togglePiP}
+                    className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
+                    title="Picture in Picture (P)"
+                  >
+                    📺
+                  </button>
+                )}
+
+                {/* Fullscreen Button */}
+                <button
+                  onClick={toggleFullscreen}
                   className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
-                  title="Picture in Picture (P)"
+                  title="Fullscreen (F)"
                 >
-                  📺
+                  ⛶
                 </button>
-              )}
-
-              {/* Fullscreen Button */}
-              <button
-                onClick={toggleFullscreen}
-                className="p-2 rounded-xl bg-deep-blue hover:bg-dark-hover border border-border-dark text-text-muted hover:text-white transition-colors cursor-pointer"
-                title="Fullscreen (F)"
-              >
-                ⛶
-              </button>
+              </div>
             </div>
           </div>
         </div>
